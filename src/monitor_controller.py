@@ -1,15 +1,10 @@
 import os
 import sys
-import time
 import configparser
 
-class MonitorController:
-    UPDATE_DELAY = 1.1
-    
+class MonitorController:  
     def __init__(self, monitor, config_path=None):
         self.monitor = monitor
-        self.last_command_time = 0
-        self.update_delay = MonitorController.UPDATE_DELAY
 
         if config_path is None:
             base_path = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else __file__)
@@ -60,16 +55,10 @@ class MonitorController:
             print(f"Brightness unchanged ({brightness}%), skipping update")
             return False
 
-        now = time.time()
-        #if now - self.last_command_time < self.update_delay:
-        #    print("Command skipped: too soon after previous")
-        #    return False
-
         try:
             with self.monitor:
                 self.monitor.set_luminance(brightness)
                 self.current_brightness = brightness
-                self.last_command_time = now
                 print(f"Successfully set brightness to {brightness}%")
                 return True
         except Exception as e:
