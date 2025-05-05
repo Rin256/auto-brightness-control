@@ -13,5 +13,7 @@ Adjusts monitor brightness based on ambient light using Arduino Nano and BH1750F
   - SDA → A4
 
 ## Usage
-Edit `monitor_config.ini` with monitor parameters.
-File must be in the same directory as the executable.
+1. To create an `.exe` file, run `src\setup.py`.
+2. Make sure the **Arduino Nano driver** is installed.
+3. Edit the `monitor_config.ini` file to configure monitor parameters.
+4. Place the executable or a shortcut into the startup folder: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`
