@@ -1,10 +1,17 @@
 import os
 import sys
 import configparser
+import time
+from collections import deque
+
+from utils import constrain, round_down
 
 class MonitorController:  
     def __init__(self, monitor, config_path=None):
         self.monitor = monitor
+        self.target_brightness_buffer = deque(maxlen=5)
+        self.total_delta = 0
+        self.manual_mode = False
 
         if config_path is None:
             base_path = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else __file__)
@@ -50,40 +57,76 @@ class MonitorController:
         self.brightness_max = int(self.config[model_section].get('BRIGHTNESS_MAX', self.config['DEFAULT']['BRIGHTNESS_MAX']))
         self.brightness_step = int(self.config[model_section].get('BRIGHTNESS_STEP', self.config['DEFAULT']['BRIGHTNESS_STEP']))
 
-    def set_brightness_if_changed(self, brightness):
-        if self.current_brightness == brightness:
-            print(f"Brightness unchanged ({brightness}%), skipping update")
-            return False
+    def process_delta(self, delta):
+        if delta != 0:
+            self.total_delta = constrain(self.total_delta + delta, self.current_brightness, 100 - self.current_brightness)
+            temporary_brightness = constrain(self.current_brightness + self.total_delta, 0, 100)
+            self.set_temporary_brightness(temporary_brightness)
 
+        print(f"Current brightness {self.current_brightness + self.total_delta}% with delta {self.total_delta}%")
+
+    def process_manual_mode(self, manual_mode):
+        if self.manual_mode != manual_mode:
+            self.manual_mode = manual_mode
+            self.set_brightness(self.current_brightness)
+
+    def process_lux(self, lux_value):
+        if self.manual_mode:
+            return
+            
+        target_brightness = self.calculate_brightness(lux_value)
+        self.target_brightness_buffer.append(target_brightness)
+        self.fade_brightness_if_needed()    
+
+    def fade_brightness_if_needed(self):
+        print(f"Target brightness buffer: {', '.join(f'{x}%' for x in self.target_brightness_buffer)}")
+        
+        target_brightness = min(self.target_brightness_buffer, key=lambda x: abs(x - self.current_brightness))
+        if (abs(target_brightness - self.current_brightness) < self.brightness_step * 2
+            and target_brightness != 0 and target_brightness != 100):
+            print(f"Brightness unchanged ({self.current_brightness}%), skipping update")
+            return False
+        
+        print(f"Target brightness: {target_brightness}%")
+        self.fade_brightness(target_brightness)
+    
+    def fade_brightness(self, brightness, step_delay = 0):
+        current_brightness = self.current_brightness
+        step = 1 if current_brightness < brightness else -1
+        while current_brightness != brightness:
+            current_brightness = current_brightness + step
+            self.set_brightness(current_brightness)
+            time.sleep(step_delay)    
+    
+    def set_brightness(self, brightness):
         try:
             with self.monitor:
                 self.monitor.set_luminance(brightness)
                 self.current_brightness = brightness
-                print(f"Successfully set brightness to {brightness}%")
+                self.total_delta = 0
                 return True
         except Exception as e:
             print(f"Failed to set brightness: {e}")
             return False
-
-    def calculate_brightness(self, lux_value, delta = 0):
+        
+    def set_temporary_brightness(self, brightness):
+        try:
+            with self.monitor:
+                self.monitor.set_luminance(brightness)
+                return True
+        except Exception as e:
+            print(f"Failed to set brightness: {e}")
+            return False
+    
+    def calculate_brightness(self, lux_value):
         # Limit lux value
-        lux_value = self.constrain(lux_value, self.lux_min, self.lux_max)
+        lux_value = constrain(lux_value, self.lux_min, self.lux_max)
 
         # Normalize lux → 0–100
         brightness = int((lux_value - self.lux_min) / (self.lux_max - self.lux_min) * 100)
 
         # Limit brightness
-        brightness = self.constrain(brightness + delta, self.brightness_min, self.brightness_max)
+        brightness = constrain(brightness, self.brightness_min, self.brightness_max)
+        brightness = round_down(brightness, self.brightness_step)
         
-        print(f"Measured lux: {lux_value:.2f} lux")
-        print(f"Target brightness: {brightness}% (correction {delta:+d}%)")
-        
-        brightness = self.constrain(
-            brightness,
-            self.current_brightness - self.brightness_step - abs(delta),
-            self.current_brightness + self.brightness_step + abs(delta))
-
         return brightness
-    
-    def constrain(self, x, a, b):
-        return max(a, min(x, b))

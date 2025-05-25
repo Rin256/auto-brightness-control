@@ -1,7 +1,9 @@
 import time
 import serial
+from concurrent.futures import ThreadPoolExecutor
 
 from monitorcontrol import get_monitors
+
 from monitor_controller import MonitorController
 
 class LightManager:
@@ -9,7 +11,7 @@ class LightManager:
         self.serial_port = serial_port
         self.baud_rate = baud_rate
         self.monitors = self._initialize_monitors()
-        self.manual_mode = False
+        self.executor = ThreadPoolExecutor(max_workers=len(self.monitors) if self.monitors else 1)
 
     def _initialize_monitors(self):
         monitors = [MonitorController(m) for m in get_monitors()]
@@ -35,6 +37,8 @@ class LightManager:
             print("\nProgram terminated by user")
         except Exception as e:
             print(f"Unexpected error: {e}")
+        finally:
+            self.executor.shutdown()
 
     def _process_line(self, line):
         try:
@@ -48,21 +52,15 @@ class LightManager:
             print(f"Invalid data: '{line}' ({e})")
 
     def _handle_input(self, lux, manual_mode, delta):
-        if manual_mode:
-            if not self.manual_mode:
-                print("Manual mode enabled.")
-                self.manual_mode = True
-            for monitor in self.monitors:
-                new_brightness = monitor.constrain(
-                    monitor.current_brightness + delta,
-                    monitor.brightness_min,
-                    monitor.brightness_max)
-                print(f"Target brightness: {new_brightness}% (correction {delta:+d}%)")
-                monitor.set_brightness_if_changed(new_brightness)
-        else:
-            if self.manual_mode:
-                print("Auto mode enabled.")
-                self.manual_mode = False
-            for monitor in self.monitors:
-                brightness = monitor.calculate_brightness(lux, delta)
-                monitor.set_brightness_if_changed(brightness)
+        futures = []
+        for monitor in self.monitors:
+            future = self.executor.submit(self._process_monitor, monitor, lux, manual_mode, delta)
+            futures.append(future)
+        
+        for future in futures:
+            future.result()
+
+    def _process_monitor(self, monitor, lux, manual_mode, delta):
+        monitor.process_delta(delta)
+        monitor.process_manual_mode(manual_mode)
+        monitor.process_lux(lux)
