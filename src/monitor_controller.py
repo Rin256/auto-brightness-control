@@ -80,11 +80,12 @@ class MonitorController:
 
     def fade_brightness_if_needed(self):
         print(f"Target brightness buffer: {', '.join(f'{x}%' for x in self.target_brightness_buffer)}")
-        
-        target_brightness = min(self.target_brightness_buffer, key=lambda x: abs(x - self.current_brightness))
+        if not all(x == self.target_brightness_buffer[0] for x in self.target_brightness_buffer):
+            return False
+            
+        target_brightness = self.target_brightness_buffer[0]
         if (abs(target_brightness - self.current_brightness) < self.brightness_step * 2
             and target_brightness != 0 and target_brightness != 100):
-            print(f"Brightness unchanged ({self.current_brightness}%), skipping update")
             return False
         
         print(f"Target brightness: {target_brightness}%")
